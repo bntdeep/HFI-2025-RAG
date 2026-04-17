@@ -12,8 +12,10 @@ Source document: `documents/2025-human-freedom-index.pdf`
 React Frontend (client/)
     ↕  REST + WebSocket
 Node.js BFF — Express (bff/)
-    ↕  MCP Protocol (SSE)
-Python MCP Server (server/)
+    ↕  REST API (FastAPI, port 8080)
+Python Server (server/)
+    ├── FastAPI REST API (port 8080)  ← used by BFF
+    ├── FastMCP Server  (port 8003)   ← used by Claude Desktop / inspector
     ├── LangGraph Agent
     ├── PDF Ingestion Pipeline
     └── Storage: ChromaDB + SQLite
@@ -55,8 +57,8 @@ hfi_rag/
 | LLM framework | LangChain | 0.3+ |
 | PDF parsing | pymupdf4llm | latest |
 | Vector DB | ChromaDB | 0.5+ |
+| Python REST API | FastAPI | 0.111+ |
 | Node BFF | Express.js | 4+ |
-| MCP client | @modelcontextprotocol/sdk | latest |
 | Frontend | React + Vite | 18+ |
 | UI | MUI (Material UI) | 5+ |
 | Charts | Recharts | 2+ |
@@ -99,18 +101,16 @@ See `specification/TASKS.md` for current progress.
 
 1. **Phase 0** — Reference specs (01, 02)
 2. **Phase 1** — RAG core: project scaffold → PDF pipeline → LangGraph agent → MCP server
-3. **Phase 2** — RAG validation: evaluation script + Postman collection
-4. **Phase 3** — Frontend: Node.js BFF → React client
-
-Do not start Phase 3 until Phase 2 evaluation passes (≥80% answer accuracy, ≥85% retrieval hit rate).
+3. **Phase 3** — Frontend: Node.js BFF (REST) → React client (3-tab UI)
+4. **Phase 2** — RAG validation: evaluation script + Postman collection (deferred — run after frontend to tune chunking/DB based on real usage)
 
 ## Commands
 
 ```bash
-# Python server
+# Python server — two modes
 cd server && pip install -e .
-python -m src.main          # start MCP server (port 8000)
-python eval/run_evaluation.py
+python -m src.main rest              # FastAPI REST on port 8080 (used by BFF)
+python -m src.main streamable-http   # FastMCP on port 8003 (Claude Desktop / inspector)
 
 # Node BFF
 cd bff && npm install
@@ -119,4 +119,7 @@ npm run dev                 # port 3001
 # React client
 cd client && npm install
 npm run dev                 # port 5173
+
+# Evaluation (deferred — run after frontend is working)
+python eval/run_evaluation.py
 ```
