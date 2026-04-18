@@ -114,11 +114,19 @@ class VectorStoreClient:
         top_k: int = 5,
         document_id: str | None = None,
         chunk_type: str | None = None,
+        country: str | None = None,
+        countries_mentioned: str | None = None,
     ) -> list[tuple[Document, float]]:
         """
         Semantic search. Returns (Document, relevance_score) pairs.
         relevance_score is in [0, 1] — higher is more relevant.
         List metadata fields are deserialized back to Python lists.
+
+        country:             restrict to chunks whose primary_country == country (exact scalar).
+        countries_mentioned: restrict to chunks whose countries_mentioned JSON string contains
+                             this country name (substring match — e.g. '"Austria"' in
+                             '["Austria","Belgium"]').  Used as a softer fallback when
+                             primary_country detection fails.
         """
         where: dict | None = None
         filters: list[dict] = []
@@ -126,6 +134,12 @@ class VectorStoreClient:
             filters.append({"document_id": {"$eq": document_id}})
         if chunk_type:
             filters.append({"chunk_type": {"$eq": chunk_type}})
+        if country:
+            filters.append({"primary_country": {"$eq": country}})
+        if countries_mentioned:
+            # countries_mentioned is stored as a JSON string e.g. '["Austria","Belgium"]'
+            # Wrap in quotes so we match the exact name, not a substring of another name.
+            filters.append({"countries_mentioned": {"$contains": f'"{countries_mentioned}"'}})
         if len(filters) == 1:
             where = filters[0]
         elif len(filters) > 1:

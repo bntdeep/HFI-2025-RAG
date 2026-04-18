@@ -10,7 +10,7 @@ configure_logging()
 
 async def main():
   result = await ingest_document(
-      "/Users/Artsiom_Sushchenia/Library/CloudStorage/OneDrive-EPAM/Learn/trainings/AI Architect/module 3. rag/hfi_rag/documents/Albania-Burundi.pdf",
+      "/Users/Artsiom_Sushchenia/VSCodeProjects/hfi_rag/documents/Albania-Burundi.pdf",
       document_name="2025 Human Freedom Index Albania-Burundi",
   )
   print(result.summary())

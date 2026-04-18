@@ -1,4 +1,4 @@
-    """
+"""
 RAG Retrieval Precision Evaluation
 ===================================
 Measures Precision@5 for Austria, Belarus, Belgium — 3 queries per country.

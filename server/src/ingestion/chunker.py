@@ -26,6 +26,7 @@ from langchain_text_splitters import (
 )
 
 from .table_extractor import replace_tables_with_placeholders
+from ..utils.countries import COUNTRY_NAMES as _KNOWN_COUNTRIES
 
 # Headers the splitter will use as boundaries
 _HEADERS_TO_SPLIT_ON = [
@@ -39,6 +40,28 @@ _PAGE_MARKER_RE = re.compile(r"<!--\s*PAGE:(\d+)\s*-->")
 
 # Regex to find table placeholders
 _PLACEHOLDER_RE = re.compile(r"<<HFI_TABLE_\d+>>")
+
+# Matches a line that is *only* **SOME TEXT** — used to detect in-section country markers
+# e.g. "**AUSTRIA**" that the PDF uses instead of H3 headers
+_BOLD_LINE_RE = re.compile(r"^\*\*([^\n*]+?)\*\*\s*$", re.MULTILINE)
+
+# Fast lookup: uppercase country name → canonical name
+_COUNTRY_UPPER: dict[str, str] = {n.upper(): n for n in _KNOWN_COUNTRIES}
+
+
+def _detect_country_marker(text: str) -> str | None:
+    """
+    Return the canonical country name if *text* contains a line that is solely a bold
+    country name (e.g. '**AUSTRIA**').  These appear in HFI PDFs as in-section dividers
+    between country profiles when the PDF does not use H3 headers for countries.
+    Returns the FIRST such match, or None.
+    """
+    for m in _BOLD_LINE_RE.finditer(text):
+        candidate = m.group(1).strip().upper()
+        canonical = _COUNTRY_UPPER.get(candidate)
+        if canonical:
+            return canonical
+    return None
 
 _ENCODER = tiktoken.get_encoding("cl100k_base")
 
@@ -94,9 +117,18 @@ def chunk_document(
 
     overflow_splitter = _build_overflow_splitter(chunk_size, chunk_overlap)
 
+    # ── Regex for stripping markdown bold from header text ────────────────────
+    _bold_strip = re.compile(r'\*\*([^*]+)\*\*')
+
     final_chunks: list[Document] = []
     chunk_index = 0
     current_page: int | None = None  # carry-forward for chunks without a page marker
+
+    # section_country persists ACROSS header boundaries.
+    # The HFI PDF pattern is:  ## **ALBANIA**  (country H2, empty body)
+    #                           ## EASTERN EUROPE  (region H2, holds Albania's data)
+    # We must NOT reset on non-country headers so the country context flows through.
+    section_country: str | None = None
 
     for hchunk in header_chunks:
         content: str = hchunk.page_content
@@ -104,6 +136,18 @@ def chunk_document(
             k: v for k, v in hchunk.metadata.items()
             if k in ("section_h1", "section_h2", "section_h3")
         }
+
+        # Update section_country when the section header itself names a country
+        # (e.g. section_h2 = "**ALBANIA**").  Leave it unchanged for non-country
+        # headers like "EASTERN EUROPE" so Albania's context propagates forward.
+        for field in ("section_h3", "section_h2", "section_h1"):
+            hdr = section_meta.get(field, "")
+            if hdr:
+                plain = _bold_strip.sub(r'\1', hdr).strip().upper()
+                canonical = _COUNTRY_UPPER.get(plain)
+                if canonical:
+                    section_country = canonical
+                    break
 
         # ── Step 5: recover page number ──────────────────────────────────────
         # If this chunk contains a page marker use it; otherwise fall back to
@@ -135,18 +179,34 @@ def chunk_document(
             if not segment_text:
                 continue
 
+            # Secondary: also detect bold country markers in body text
+            # (handles PDFs where **COUNTRY** appears inside a section rather
+            # than as its own H2 header).
+            if not is_table:
+                detected = _detect_country_marker(segment_text)
+                if detected is not None:
+                    section_country = detected
+                    if _count_tokens(segment_text) < min_chunk_size:
+                        continue
+
             base_meta = {
                 **section_meta,
                 "document_id": document_id,
                 "document_name": document_name,
                 "page_number": page_number,
             }
+            if section_country:
+                base_meta["section_country"] = section_country
 
             if is_table:
-                # Prepend section headers to the table content so the embedding
-                # captures the country name (e.g. "## **AUSTRIA**") — without this,
-                # all country tables look identical in embedding space.
-                ctx_lines = [
+                # Prepend country + section headers to the table so the embedding
+                # captures the country name.  The section headers only contain the
+                # region (e.g. "EASTERN EUROPE"), so we prepend the country name
+                # explicitly when we have it so tables aren't anonymous.
+                ctx_lines = []
+                if section_country:
+                    ctx_lines.append(f"## {section_country}")
+                ctx_lines += [
                     f"{'#' * int(k[-1])} {v}"
                     for k, v in sorted(section_meta.items())
                     if v

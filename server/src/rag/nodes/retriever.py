@@ -68,27 +68,60 @@ async def retriever_node(state: AgentState) -> dict:
     }
 
 
+async def _search_for_country(
+    country: str,
+    param_hint: str,
+) -> list[tuple[Document, float]]:
+    """
+    Search for a single country's chunks with a three-tier fallback:
+
+    1. primary_country filter (exact scalar match) — most precise; requires the PDF
+       to give countries their own header level so enricher can detect the primary country.
+    2. countries_mentioned filter ($contains on the stored JSON string) — works even when
+       multiple countries share a section; still excludes chunks that don't mention the
+       country at all.
+    3. Fully unfiltered — last resort; may return regional-overview chunks.
+    """
+    # Tier 1: primary_country exact match
+    results = await asyncio.gather(
+        _vs.search(f"{country} {param_hint}", top_k=4, country=country),
+        _vs.search(f"{country} Human Freedom Index score rank", top_k=3, country=country),
+    )
+    flat = [item for batch in results for item in batch]
+
+    if not flat:
+        # Tier 2: countries_mentioned contains this country (JSON substring match)
+        logger.info("[retriever] primary_country=0 for %r — trying countries_mentioned filter", country)
+        results = await asyncio.gather(
+            _vs.search(f"{country} {param_hint}", top_k=4, countries_mentioned=country),
+            _vs.search(f"{country} Human Freedom Index score rank", top_k=3, countries_mentioned=country),
+        )
+        flat = [item for batch in results for item in batch]
+
+    if not flat:
+        # Tier 3: fully unfiltered
+        logger.info("[retriever] countries_mentioned=0 for %r — falling back to unfiltered", country)
+        results = await asyncio.gather(
+            _vs.search(f"{country} {param_hint}", top_k=4),
+            _vs.search(f"{country} Human Freedom Index score rank", top_k=3),
+        )
+        flat = [item for batch in results for item in batch]
+
+    return flat
+
+
 async def _comparison_search(
     countries: list[str],
     parameters: list[str],
 ) -> list[tuple[Document, float]]:
     """
-    Issue multiple focused searches per country concurrently.
-
-    Two queries per country:
-    1. "<country> <param_hint>" — finds sections mentioning both
-    2. "<country> Human Freedom Index score rank" — catches the country's profile page
-
-    Using short, country-specific queries avoids embedding drift toward other countries.
+    Issue focused searches per country, filtered to chunks primarily about that country.
+    Falls back to unfiltered search if primary_country metadata is absent/empty.
     """
     param_hint = " ".join(parameters) if parameters else "freedom score rank"
-    tasks = []
-    for country in countries:
-        tasks.append(_vs.search(f"{country} {param_hint}", top_k=5))
-        tasks.append(_vs.search(f"{country} Human Freedom Index score rank", top_k=5))
-    nested = await asyncio.gather(*tasks)
-    flat: list[tuple[Document, float]] = []
-    for results in nested:
-        flat.extend(results)
+    nested = await asyncio.gather(*[
+        _search_for_country(c, param_hint) for c in countries
+    ])
+    flat: list[tuple[Document, float]] = [item for batch in nested for item in batch]
     flat.sort(key=lambda x: x[1], reverse=True)
     return flat
