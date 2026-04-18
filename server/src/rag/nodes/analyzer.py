@@ -31,6 +31,7 @@ Countries to compare: {countries}
 Focus on parameters: {parameters}
 
 Return a ComparisonResult with:
+- countries: list of CountryScore objects — one per country with name, overall score (0–10 scale), and rank (integer position in the HFI ranking, e.g. 1–165)
 - scores_matrix: map each country to its parameter scores (use null if data missing)
 - chart_config: bar chart comparing the countries on the main parameters
 - insight: 2–3 sentence summary of the key findings

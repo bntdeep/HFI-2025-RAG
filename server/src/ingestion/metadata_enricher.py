@@ -87,6 +87,13 @@ def enrich_chunks(chunks: list[Document]) -> list[Document]:
     Returns the same list (for chaining).
     """
     for chunk in chunks:
-        chunk.metadata["countries_mentioned"] = detect_countries(chunk.page_content)
+        # Include section headers in country detection — table chunks have the country
+        # name only in section_h2 (e.g. "**AUSTRIA**"), not in the numeric table body.
+        text_to_scan = chunk.page_content
+        for field in ("section_h1", "section_h2", "section_h3"):
+            section = chunk.metadata.get(field, "")
+            if section:
+                text_to_scan += " " + section
+        chunk.metadata["countries_mentioned"] = detect_countries(text_to_scan)
         chunk.metadata["metrics_mentioned"] = detect_parameters(chunk.page_content)
     return chunks

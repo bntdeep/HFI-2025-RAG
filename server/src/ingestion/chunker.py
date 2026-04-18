@@ -143,10 +143,19 @@ def chunk_document(
             }
 
             if is_table:
+                # Prepend section headers to the table content so the embedding
+                # captures the country name (e.g. "## **AUSTRIA**") — without this,
+                # all country tables look identical in embedding space.
+                ctx_lines = [
+                    f"{'#' * int(k[-1])} {v}"
+                    for k, v in sorted(section_meta.items())
+                    if v
+                ]
+                enriched_text = ("\n".join(ctx_lines) + "\n\n" + segment_text).strip() if ctx_lines else segment_text
                 # Tables are never split
-                token_count = _count_tokens(segment_text)
+                token_count = _count_tokens(enriched_text)
                 final_chunks.append(Document(
-                    page_content=segment_text,
+                    page_content=enriched_text,
                     metadata={
                         **base_meta,
                         "chunk_id": str(uuid.uuid4()),
