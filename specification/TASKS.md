@@ -23,8 +23,8 @@
 ## Phase 2: RAG Validation (deferred — run after frontend to tune chunking/DB)
 | # | File | Section | Status | Notes |
 |---|------|---------|--------|-------|
-| 7 | `07_evaluation.md` | Evaluation | [ ] | quality metrics |
-| 8 | `08_postman_collection_skeleton.md` | Postman Collection | [ ] | integration testing |
+| 7 | `07_evaluation.md` | Evaluation | [x] | quality metrics |
+| 8 | `08_postman_collection_skeleton.md` | Postman Collection | [x] | integration testing |
 
 ## Status legend
 - `[ ]` — not started
